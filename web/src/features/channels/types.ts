@@ -94,6 +94,8 @@ export interface ChannelSettings {
   /** Legacy setting read by older saved channels. */
   async_retention_days?: number
   async_auto_archive?: boolean
+  http_protocol?: 'auto' | 'http1' | string
+  http2_connection_shards?: number
 }
 
 export interface ChannelOtherSettings {

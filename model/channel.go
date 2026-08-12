@@ -11,10 +11,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -1030,6 +1030,9 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
 		return fmt.Errorf("invalid channel proxy: %w", err)
+	}
+	if err := channelParams.ValidateHTTPTransport(); err != nil {
+		return err
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
