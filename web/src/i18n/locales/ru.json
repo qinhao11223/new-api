@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / Attempt",
     "Worker node": "Worker node",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "После отправки можно покинуть страницу. Воркер продолжит генерацию и сохранит результат.",
-    "Your latest task status and archived image will appear here.": "Здесь появятся статус последней задачи и сохранённое изображение."
+    "Your latest task status and archived image will appear here.": "Здесь появятся статус последней задачи и сохранённое изображение.",
+    "CNY Cost per Upstream Unit": "Стоимость в CNY за единицу провайдера",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "Преобразует указанные в журнале единицы использования этого канала в стоимость в CNY, видимую только администраторам. Это не меняет тарификацию пользователей.",
+    "Cost rate must be greater than 0": "Коэффициент стоимости должен быть больше 0",
+    "Cost rate must not exceed 1000000": "Коэффициент стоимости не должен превышать 1000000",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "Пример: укажите 0,495, если 100 единиц провайдера стоят ¥49,5.",
+    "Upstream Cost": "Стоимость провайдера",
+    "Upstream Units": "Единицы провайдера"
   }
 }

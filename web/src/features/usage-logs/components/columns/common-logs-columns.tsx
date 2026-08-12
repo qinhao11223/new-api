@@ -36,7 +36,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatBillingCurrencyFromUSD, formatCNYAmount } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -698,7 +698,41 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        return <LogCostDisplay quota={quota} other={other} />
+        const upstreamCost = isAdmin
+          ? other?.admin_info?.upstream_cost
+          : undefined
+        let upstreamAmountCNY: number | undefined
+        if (upstreamCost && Number.isFinite(upstreamCost.amount_cny_micros)) {
+          upstreamAmountCNY = Number(upstreamCost.amount_cny_micros) / 1_000_000
+        } else if (upstreamCost && Number.isFinite(upstreamCost.amount_cny)) {
+          upstreamAmountCNY = Number(upstreamCost.amount_cny)
+        }
+
+        let upstreamCostText: string | null = null
+        if (upstreamCost?.status === 'unpriced') {
+          upstreamCostText = t('Unpriced')
+        } else if (upstreamAmountCNY != null) {
+          upstreamCostText = formatCNYAmount(upstreamAmountCNY, {
+            digitsLarge: 4,
+            digitsSmall: 6,
+            abbreviate: false,
+          })
+        }
+        const upstreamCostSuffix = upstreamCost?.estimated
+          ? ` · ${t('Estimated')}`
+          : ''
+
+        return (
+          <div className='flex flex-col gap-0.5'>
+            <LogCostDisplay quota={quota} other={other} />
+            {upstreamCostText && (
+              <span className='text-muted-foreground text-[11px] tabular-nums'>
+                {t('Upstream Cost')}: {upstreamCostText}
+                {upstreamCostSuffix}
+              </span>
+            )}
+          </div>
+        )
       },
     },
 

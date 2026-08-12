@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / Attempt",
     "Worker node": "Worker node",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "送信後はこのページを離れても、ワーカーが生成を続けて結果を保存します。",
-    "Your latest task status and archived image will appear here.": "最新のタスク状態と保存された画像がここに表示されます。"
+    "Your latest task status and archived image will appear here.": "最新のタスク状態と保存された画像がここに表示されます。",
+    "CNY Cost per Upstream Unit": "上流単位あたりの人民元コスト",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "このチャネルのログ上の使用単位を、管理者だけに表示される人民元コストへ換算します。ユーザーへの課金は変更しません。",
+    "Cost rate must be greater than 0": "コスト換算率は 0 より大きくする必要があります",
+    "Cost rate must not exceed 1000000": "コスト換算率は 1000000 以下にする必要があります",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "例：上流 100 単位のコストが ¥49.5 の場合は 0.495 と入力します。",
+    "Upstream Cost": "上流コスト",
+    "Upstream Units": "上流単位"
   }
 }

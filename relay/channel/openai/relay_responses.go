@@ -34,9 +34,6 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	// compute usage
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
@@ -69,6 +66,15 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	imageCounter.Commit(info)
 
+	service.AttachResponseBilling(c, info, &usage)
+	if usage.Billing != nil {
+		responseBody, err = addBillingToUsageJSON(responseBody, usage.Billing)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	}
+
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return &usage, nil
 }
 
@@ -94,7 +100,6 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
@@ -131,6 +136,26 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
+			if usage.CompletionTokens == 0 {
+				text := responseTextBuilder.String()
+				if text != "" {
+					usage.CompletionTokens = service.CountTextToken(text, info.UpstreamModelName)
+				}
+			}
+			if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+				usage.PromptTokens = info.GetEstimatePromptTokens()
+			}
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+			service.AttachResponseBilling(c, info, usage)
+			if usage.Billing != nil {
+				enrichedData, err := addBillingToResponsesEventJSON(common.StringToByteSlice(data), usage.Billing)
+				if err != nil {
+					logger.LogError(c, "failed to add billing to responses stream: "+err.Error())
+					sr.Error(err)
+					return
+				}
+				data = string(enrichedData)
+			}
 		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 			if !imageCommitted {
 				imageCounter.Reset()
@@ -156,6 +181,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
+		sendResponsesStreamData(c, streamResponse, data)
 	})
 
 	if usage.CompletionTokens == 0 {
@@ -173,6 +199,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	service.AttachResponseBilling(c, info, usage)
 
 	return usage, nil
 }

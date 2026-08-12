@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / 尝试次数",
     "Worker node": "Worker 节点",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "提交后可以离开此页面，云端 Worker 会继续生成并归档结果。",
-    "Your latest task status and archived image will appear here.": "最新任务状态和已归档图片会显示在这里。"
+    "Your latest task status and archived image will appear here.": "最新任务状态和已归档图片会显示在这里。",
+    "CNY Cost per Upstream Unit": "每上游积分人民币成本",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "将此渠道日志中的用量单位换算为仅管理员可见的人民币成本，不会改变用户计费。",
+    "Cost rate must be greater than 0": "成本换算率必须大于 0",
+    "Cost rate must not exceed 1000000": "成本换算率不得超过 1000000",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "示例：若 100 个上游积分成本为 ¥49.5，请填写 0.495。",
+    "Upstream Cost": "上游成本",
+    "Upstream Units": "上游积分"
   }
 }

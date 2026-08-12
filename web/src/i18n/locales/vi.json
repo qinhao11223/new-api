@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / Attempt",
     "Worker node": "Worker node",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "Bạn có thể rời trang sau khi gửi. Worker sẽ tiếp tục tạo và lưu trữ kết quả.",
-    "Your latest task status and archived image will appear here.": "Trạng thái tác vụ mới nhất và ảnh đã lưu sẽ xuất hiện tại đây."
+    "Your latest task status and archived image will appear here.": "Trạng thái tác vụ mới nhất và ảnh đã lưu sẽ xuất hiện tại đây.",
+    "CNY Cost per Upstream Unit": "Chi phí CNY trên mỗi đơn vị thượng nguồn",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "Quy đổi các đơn vị sử dụng đã ghi nhật ký của kênh này thành chi phí CNY chỉ quản trị viên nhìn thấy. Không thay đổi phí của người dùng.",
+    "Cost rate must be greater than 0": "Tỷ lệ chi phí phải lớn hơn 0",
+    "Cost rate must not exceed 1000000": "Tỷ lệ chi phí không được vượt quá 1000000",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "Ví dụ: nhập 0,495 nếu 100 đơn vị thượng nguồn có giá ¥49,5.",
+    "Upstream Cost": "Chi phí thượng nguồn",
+    "Upstream Units": "Đơn vị thượng nguồn"
   }
 }

@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / Attempt",
     "Worker node": "Worker node",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "提交後可以離開此頁面，雲端 Worker 會繼續生成並封存結果。",
-    "Your latest task status and archived image will appear here.": "最新任務狀態和已封存圖片會顯示在這裡。"
+    "Your latest task status and archived image will appear here.": "最新任務狀態和已封存圖片會顯示在這裡。",
+    "CNY Cost per Upstream Unit": "每上游積分人民幣成本",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "將此渠道日誌中的用量單位換算為僅管理員可見的人民幣成本，不會變更使用者計費。",
+    "Cost rate must be greater than 0": "成本換算率必須大於 0",
+    "Cost rate must not exceed 1000000": "成本換算率不得超過 1000000",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "範例：若 100 個上游積分成本為 ¥49.5，請填寫 0.495。",
+    "Upstream Cost": "上游成本",
+    "Upstream Units": "上游積分"
   }
 }

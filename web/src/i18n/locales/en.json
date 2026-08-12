@@ -5359,6 +5359,13 @@
     "Worker / Attempt": "Worker / Attempt",
     "Worker node": "Worker node",
     "You can leave this page after submission. The worker will continue generating and archive the result.": "You can leave this page after submission. The worker will continue generating and archive the result.",
-    "Your latest task status and archived image will appear here.": "Your latest task status and archived image will appear here."
+    "Your latest task status and archived image will appear here.": "Your latest task status and archived image will appear here.",
+    "CNY Cost per Upstream Unit": "CNY Cost per Upstream Unit",
+    "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.": "Converts this channel's logged usage units to an admin-only CNY cost. It does not change user billing.",
+    "Cost rate must be greater than 0": "Cost rate must be greater than 0",
+    "Cost rate must not exceed 1000000": "Cost rate must not exceed 1000000",
+    "Example: enter 0.495 when 100 upstream units cost ¥49.5.": "Example: enter 0.495 when 100 upstream units cost ¥49.5.",
+    "Upstream Cost": "Upstream Cost",
+    "Upstream Units": "Upstream Units"
   }
 }
