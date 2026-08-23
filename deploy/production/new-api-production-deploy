@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+deploy_root="/opt/new-api-async-staging"
+frontend_root="/var/www/async-api-frontend"
+health_url="https://async-api.nexaapp.cn/api/status"
+compose_file=""
+compose_environment_file=""
+release_id=""
+image_ref=""
+frontend_archive=""
+frontend_checksum_file=""
+source_sha=""
+
+usage() {
+  cat <<'EOF'
+Usage: new-api-production-deploy \
+  --release-id RELEASE_ID \
+  --image IMAGE_REF \
+  --frontend-archive FILE \
+  --frontend-checksum-file FILE \
+  --source-sha GIT_SHA \
+  [--deploy-root DIR] \
+  [--frontend-root DIR] \
+  [--compose-file FILE] \
+  [--environment-file FILE] \
+  [--health-url URL]
+EOF
+}
+
+fail() {
+  printf 'deploy error: %s\n' "$*" >&2
+  return 1
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --release-id)
+      release_id="${2:-}"
+      shift 2
+      ;;
+    --image)
+      image_ref="${2:-}"
+      shift 2
+      ;;
+    --frontend-archive)
+      frontend_archive="${2:-}"
+      shift 2
+      ;;
+    --frontend-checksum-file)
+      frontend_checksum_file="${2:-}"
+      shift 2
+      ;;
+    --source-sha)
+      source_sha="${2:-}"
+      shift 2
+      ;;
+    --deploy-root)
+      deploy_root="${2:-}"
+      shift 2
+      ;;
+    --frontend-root)
+      frontend_root="${2:-}"
+      shift 2
+      ;;
+    --compose-file)
+      compose_file="${2:-}"
+      shift 2
+      ;;
+    --environment-file)
+      compose_environment_file="${2:-}"
+      shift 2
+      ;;
+    --health-url)
+      health_url="${2:-}"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ $(id -u) -eq 0 ]] || fail "run this command as root"
+[[ $release_id =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]] || fail "invalid release id"
+[[ $image_ref =~ ^[^[:space:]]+(@sha256:[a-f0-9]{64}|:[a-zA-Z0-9._-]+)$ ]] || fail "image must use an explicit tag or sha256 digest"
+[[ $source_sha =~ ^[a-f0-9]{40}$ ]] || fail "source sha must be a full Git commit SHA"
+[[ -f $frontend_archive ]] || fail "frontend archive not found: $frontend_archive"
+[[ -f $frontend_checksum_file ]] || fail "frontend checksum file not found: $frontend_checksum_file"
+[[ -n $compose_file ]] || compose_file="$deploy_root/compose.staging.yml"
+[[ -n $compose_environment_file ]] || compose_environment_file="$deploy_root/.env"
+[[ -f $compose_file ]] || fail "compose file not found: $compose_file"
+[[ -f $compose_environment_file ]] || fail "compose environment file not found: $compose_environment_file"
+
+for command_name in curl docker flock sha256sum tar; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "required command is missing: $command_name"
+done
+
+override_file="$deploy_root/compose.release.yml"
+release_env="$deploy_root/.release.env"
+history_root="$deploy_root/release-history"
+release_record="$history_root/$release_id"
+frontend_release="$frontend_root/releases/$release_id"
+current_frontend="$frontend_root/current"
+current_release="$history_root/current"
+
+[[ -f $override_file ]] || fail "compose release override not found: $override_file"
+[[ ! -e $release_record ]] || fail "release already exists: $release_id"
+[[ ! -e $frontend_release ]] || fail "frontend release already exists: $frontend_release"
+
+mkdir -p "$deploy_root" "$history_root" "$frontend_root/releases"
+exec 9>"$deploy_root/.production-deploy.lock"
+flock -n 9 || fail "another production deployment is already running"
+
+archive_dir=$(dirname "$frontend_archive")
+checksum_dir=$(dirname "$frontend_checksum_file")
+[[ $archive_dir == "$checksum_dir" ]] || fail "frontend archive and checksum file must be in the same directory"
+(
+  cd "$archive_dir"
+  sha256sum --check "$(basename "$frontend_checksum_file")"
+) || fail "frontend checksum verification failed"
+
+while IFS= read -r archive_entry; do
+  case "$archive_entry" in
+    /*|../*|*/../*|*/..)
+      fail "frontend archive contains an unsafe path: $archive_entry"
+      ;;
+  esac
+done < <(tar -tzf "$frontend_archive")
+
+mkdir "$frontend_release"
+tar -xzf "$frontend_archive" -C "$frontend_release"
+[[ -f $frontend_release/index.html ]] || fail "frontend archive does not contain index.html"
+
+previous_image=""
+api_container=$(docker compose --env-file "$compose_environment_file" -f "$compose_file" ps -q new-api 2>/dev/null || true)
+if [[ -n $api_container ]]; then
+  previous_image=$(docker inspect --format '{{.Config.Image}}' "$api_container")
+fi
+[[ -n $previous_image ]] || fail "cannot determine the currently running API image"
+
+previous_frontend=""
+if [[ -L $current_frontend ]]; then
+  previous_frontend=$(readlink -f "$current_frontend")
+fi
+
+previous_release=""
+if [[ -L $current_release ]]; then
+  previous_release=$(readlink -f "$current_release")
+fi
+
+previous_env_backup="$deploy_root/.release.env.before-$release_id"
+had_release_env="false"
+if [[ -f $release_env ]]; then
+  cp "$release_env" "$previous_env_backup"
+  had_release_env="true"
+fi
+
+next_env="$deploy_root/.release.env.next-$release_id"
+printf 'NEW_API_IMAGE=%s\n' "$image_ref" >"$next_env"
+
+export NEW_API_IMAGE="$image_ref"
+compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+"${compose[@]}" config --quiet
+docker pull "$image_ref"
+
+rollback_required="false"
+rollback_on_error() {
+  exit_code=$?
+  trap - ERR
+  if [[ $rollback_required == "true" ]]; then
+    printf 'deployment failed; restoring image %s\n' "$previous_image" >&2
+    if [[ $had_release_env == "true" ]]; then
+      cp "$previous_env_backup" "$release_env"
+    else
+      printf 'NEW_API_IMAGE=%s\n' "$previous_image" >"$release_env"
+    fi
+
+    export NEW_API_IMAGE="$previous_image"
+    rollback_compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+    "${rollback_compose[@]}" up -d --no-deps new-api || true
+    "${rollback_compose[@]}" up -d --no-deps new-api-worker || true
+
+    if [[ -n $previous_frontend && -d $previous_frontend ]]; then
+      ln -sfn "$previous_frontend" "$current_frontend.next"
+      mv -Tf "$current_frontend.next" "$current_frontend"
+    fi
+    if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet nginx; then
+      nginx -t && systemctl reload nginx || true
+    fi
+  fi
+  exit "$exit_code"
+}
+trap rollback_on_error ERR
+
+rollback_required="true"
+mv "$next_env" "$release_env"
+export NEW_API_IMAGE="$image_ref"
+compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+
+"${compose[@]}" up -d --no-deps new-api
+
+api_container=$("${compose[@]}" ps -q new-api)
+for _ in $(seq 1 60); do
+  api_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$api_container")
+  if [[ $api_health == "healthy" || $api_health == "running" ]]; then
+    break
+  fi
+  if [[ $api_health == "unhealthy" || $api_health == "exited" || $api_health == "dead" ]]; then
+    fail "API container entered state: $api_health"
+  fi
+  sleep 2
+done
+[[ $api_health == "healthy" || $api_health == "running" ]] || fail "API container did not become ready"
+
+"${compose[@]}" up -d --no-deps new-api-worker
+worker_container=$("${compose[@]}" ps -q new-api-worker)
+for _ in $(seq 1 30); do
+  worker_state=$(docker inspect --format '{{.State.Status}}' "$worker_container")
+  [[ $worker_state == "running" ]] && break
+  if [[ $worker_state == "exited" || $worker_state == "dead" ]]; then
+    fail "worker container entered state: $worker_state"
+  fi
+  sleep 2
+done
+[[ $worker_state == "running" ]] || fail "worker container did not become ready"
+
+ln -sfn "$frontend_release" "$current_frontend.next"
+mv -Tf "$current_frontend.next" "$current_frontend"
+if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet nginx; then
+  nginx -t
+  systemctl reload nginx
+fi
+
+health_ok="false"
+for _ in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 10 "$health_url" >/dev/null; then
+    health_ok="true"
+    break
+  fi
+  sleep 2
+done
+[[ $health_ok == "true" ]] || fail "public health check failed: $health_url"
+
+mkdir "$release_record"
+printf '%s\n' "$image_ref" >"$release_record/image-ref"
+printf '%s\n' "$frontend_release" >"$release_record/frontend-path"
+printf '%s\n' "$source_sha" >"$release_record/source-sha"
+date -u +'%Y-%m-%dT%H:%M:%SZ' >"$release_record/deployed-at"
+printf '%s\n' "$previous_image" >"$release_record/previous-image-ref"
+printf '%s\n' "$previous_frontend" >"$release_record/previous-frontend-path"
+printf '%s\n' "$previous_release" >"$release_record/previous-release"
+sha256sum "$frontend_release/index.html" >"$release_record/frontend-index.sha256"
+
+ln -sfn "$release_record" "$current_release.next"
+mv -Tf "$current_release.next" "$current_release"
+rollback_required="false"
+
+printf 'release %s deployed successfully\n' "$release_id"
+printf 'image: %s\n' "$image_ref"
+printf 'frontend: %s\n' "$frontend_release"
+printf 'health: %s\n' "$health_url"

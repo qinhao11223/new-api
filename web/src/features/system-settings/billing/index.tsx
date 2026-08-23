@@ -50,6 +50,8 @@ const defaultBillingSettings: BillingSettings = {
   ExposeRatioEnabled: false,
   'billing_setting.billing_mode': '{}',
   'billing_setting.billing_expr': '{}',
+  'billing_setting.pricing_workbench':
+    '{"schema_version":1,"revision":0,"updated_at":0,"text_markup":2,"video_service_fee_cny":0.5,"video_minimum_markup":1.2,"rows":[]}',
   'tool_price_setting.prices': '{}',
   TopupGroupRatio: '',
   GroupRatio: '',

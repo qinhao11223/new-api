@@ -1,0 +1,6 @@
+services:
+  new-api:
+    image: ${NEW_API_IMAGE:?NEW_API_IMAGE must be set}
+
+  new-api-worker:
+    image: ${NEW_API_IMAGE:?NEW_API_IMAGE must be set}

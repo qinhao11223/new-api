@@ -16,15 +16,18 @@ const (
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
-// DB keys: billing_setting.billing_mode, billing_setting.billing_expr
+// DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
+// billing_setting.pricing_workbench
 type BillingSetting struct {
-	BillingMode map[string]string `json:"billing_mode"`
-	BillingExpr map[string]string `json:"billing_expr"`
+	BillingMode      map[string]string      `json:"billing_mode"`
+	BillingExpr      map[string]string      `json:"billing_expr"`
+	PricingWorkbench PricingWorkbenchConfig `json:"pricing_workbench"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode:      make(map[string]string),
+	BillingExpr:      make(map[string]string),
+	PricingWorkbench: DefaultPricingWorkbenchConfig(),
 }
 
 func init() {
@@ -53,6 +56,12 @@ func GetBillingModeCopy() map[string]string {
 
 func GetBillingExprCopy() map[string]string {
 	return lo.Assign(billingSetting.BillingExpr)
+}
+
+func GetPricingWorkbench() PricingWorkbenchConfig {
+	config := billingSetting.PricingWorkbench
+	config.Rows = append([]PricingWorkbenchRow(nil), config.Rows...)
+	return config
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {

@@ -60,6 +60,8 @@ var channelPermissionRoutes = []permissionRoute{
 	{method: http.MethodPost, path: "/fix", permission: authz.ChannelOperate, handler: controller.FixChannelsAbilities},
 	{method: http.MethodGet, path: "/fetch_models/:id", permission: authz.ChannelOperate, handler: controller.FetchUpstreamModels},
 	{method: http.MethodPost, path: "/fetch_models", permission: authz.ChannelSensitiveWrite, handler: controller.FetchModels},
+	{method: http.MethodGet, path: "/upstream_model_pool/sources", permission: authz.ChannelOperate, handler: controller.GetUpstreamModelPoolSources},
+	{method: http.MethodPost, path: "/upstream_model_pool/discover", permission: authz.ChannelOperate, handler: controller.DiscoverUpstreamModelPool},
 	{method: http.MethodPost, path: "/:id/codex/refresh", permission: authz.ChannelSensitiveWrite, handler: controller.RefreshCodexChannelCredential},
 	{method: http.MethodGet, path: "/:id/codex/usage", permission: authz.ChannelRead, handler: controller.GetCodexChannelUsage},
 	{method: http.MethodGet, path: "/:id/codex/usage/reset-credits", permission: authz.ChannelRead, handler: controller.GetCodexChannelRateLimitResetCredits},

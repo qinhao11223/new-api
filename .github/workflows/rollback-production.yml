@@ -1,0 +1,93 @@
+name: Roll back production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: 'Existing production release ID to restore'
+        required: true
+        type: string
+      confirm:
+        description: 'Type ROLLBACK to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexa-production-release
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Restore recorded release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+      PRODUCTION_PORT: ${{ secrets.PRODUCTION_PORT }}
+      PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
+      PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+      PRODUCTION_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+      DEPLOY_ROOT: ${{ vars.PRODUCTION_DEPLOY_ROOT }}
+      FRONTEND_ROOT: ${{ vars.PRODUCTION_FRONTEND_ROOT }}
+      HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - name: Validate rollback request
+        run: |
+          if [ "$CONFIRM" != 'ROLLBACK' ]; then
+            echo '::error::Enter ROLLBACK exactly to continue.'
+            exit 1
+          fi
+          if [[ ! $RELEASE_ID =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
+            echo '::error::Invalid release ID.'
+            exit 1
+          fi
+
+      - name: Configure verified SSH connection
+        run: |
+          : "${PRODUCTION_HOST:?PRODUCTION_HOST is required}"
+          : "${PRODUCTION_USER:?PRODUCTION_USER is required}"
+          : "${PRODUCTION_SSH_KEY:?PRODUCTION_SSH_KEY is required}"
+          : "${PRODUCTION_KNOWN_HOSTS:?PRODUCTION_KNOWN_HOSTS is required}"
+          PRODUCTION_PORT=${PRODUCTION_PORT:-22}
+          [[ $PRODUCTION_PORT =~ ^[0-9]+$ ]] || { echo '::error::PRODUCTION_PORT must be numeric'; exit 1; }
+
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > "$HOME/.ssh/production"
+          chmod 0600 "$HOME/.ssh/production"
+          printf '%s\n' "$PRODUCTION_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/production" >/dev/null
+          echo "PRODUCTION_PORT=$PRODUCTION_PORT" >> "$GITHUB_ENV"
+
+      - name: Restore release
+        run: |
+          DEPLOY_ROOT=${DEPLOY_ROOT:-/opt/new-api-async-staging}
+          FRONTEND_ROOT=${FRONTEND_ROOT:-/var/www/async-api-frontend}
+          HEALTH_URL=${HEALTH_URL:-https://async-api.nexaapp.cn/api/status}
+
+          remote_args=(
+            sudo -n /usr/local/sbin/new-api-production-rollback
+            --release-id "$RELEASE_ID"
+            --deploy-root "$DEPLOY_ROOT"
+            --frontend-root "$FRONTEND_ROOT"
+            --health-url "$HEALTH_URL"
+          )
+          printf -v remote_command '%q ' "${remote_args[@]}"
+          ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$PRODUCTION_USER@$PRODUCTION_HOST" "$remote_command"
+
+      - name: Write rollback summary
+        run: |
+          {
+            echo '## Production rollback completed'
+            echo
+            echo "- Restored release: \`$RELEASE_ID\`"
+            echo "- Health URL: \`${HEALTH_URL:-https://async-api.nexaapp.cn/api/status}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

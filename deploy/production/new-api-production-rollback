@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+deploy_root="/opt/new-api-async-staging"
+frontend_root="/var/www/async-api-frontend"
+health_url="https://async-api.nexaapp.cn/api/status"
+compose_file=""
+compose_environment_file=""
+release_id=""
+
+fail() {
+  printf 'rollback error: %s\n' "$*" >&2
+  return 1
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --release-id)
+      release_id="${2:-}"
+      shift 2
+      ;;
+    --deploy-root)
+      deploy_root="${2:-}"
+      shift 2
+      ;;
+    --frontend-root)
+      frontend_root="${2:-}"
+      shift 2
+      ;;
+    --compose-file)
+      compose_file="${2:-}"
+      shift 2
+      ;;
+    --environment-file)
+      compose_environment_file="${2:-}"
+      shift 2
+      ;;
+    --health-url)
+      health_url="${2:-}"
+      shift 2
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ $(id -u) -eq 0 ]] || fail "run this command as root"
+[[ $release_id =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]] || fail "invalid release id"
+[[ -n $compose_file ]] || compose_file="$deploy_root/compose.staging.yml"
+[[ -n $compose_environment_file ]] || compose_environment_file="$deploy_root/.env"
+
+override_file="$deploy_root/compose.release.yml"
+release_env="$deploy_root/.release.env"
+history_root="$deploy_root/release-history"
+target_record="$history_root/$release_id"
+current_release="$history_root/current"
+current_frontend="$frontend_root/current"
+
+[[ -f $compose_file ]] || fail "compose file not found: $compose_file"
+[[ -f $compose_environment_file ]] || fail "compose environment file not found: $compose_environment_file"
+[[ -f $override_file ]] || fail "compose release override not found: $override_file"
+[[ -d $target_record ]] || fail "release record not found: $release_id"
+[[ -f $target_record/image-ref ]] || fail "release image record is missing"
+[[ -f $target_record/frontend-path ]] || fail "release frontend record is missing"
+
+target_image=$(head -n 1 "$target_record/image-ref")
+target_frontend=$(head -n 1 "$target_record/frontend-path")
+[[ $target_image =~ ^[^[:space:]]+(@sha256:[a-f0-9]{64}|:[a-zA-Z0-9._-]+)$ ]] || fail "stored image reference is invalid"
+[[ $target_frontend == "$frontend_root"/releases/* ]] || fail "stored frontend path is outside the release directory"
+[[ -f $target_frontend/index.html ]] || fail "stored frontend release is incomplete"
+
+exec 9>"$deploy_root/.production-deploy.lock"
+flock -n 9 || fail "another production deployment is already running"
+
+previous_image=""
+api_container=$(docker compose --env-file "$compose_environment_file" -f "$compose_file" ps -q new-api 2>/dev/null || true)
+if [[ -n $api_container ]]; then
+  previous_image=$(docker inspect --format '{{.Config.Image}}' "$api_container")
+fi
+[[ -n $previous_image ]] || fail "cannot determine the currently running API image"
+
+previous_frontend=""
+if [[ -L $current_frontend ]]; then
+  previous_frontend=$(readlink -f "$current_frontend")
+fi
+
+previous_release=""
+if [[ -L $current_release ]]; then
+  previous_release=$(readlink -f "$current_release")
+fi
+
+previous_env="$deploy_root/.release.env.before-rollback-$release_id"
+if [[ -f $release_env ]]; then
+  cp "$release_env" "$previous_env"
+else
+  printf 'NEW_API_IMAGE=%s\n' "$previous_image" >"$previous_env"
+fi
+
+next_env="$deploy_root/.release.env.rollback-$release_id"
+printf 'NEW_API_IMAGE=%s\n' "$target_image" >"$next_env"
+export NEW_API_IMAGE="$target_image"
+compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+"${compose[@]}" config --quiet
+docker pull "$target_image" || docker image inspect "$target_image" >/dev/null
+
+restore_on_error() {
+  exit_code=$?
+  trap - ERR
+  cp "$previous_env" "$release_env"
+  export NEW_API_IMAGE="$previous_image"
+  restore_compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+  "${restore_compose[@]}" up -d --no-deps new-api || true
+  "${restore_compose[@]}" up -d --no-deps new-api-worker || true
+  if [[ -n $previous_frontend && -d $previous_frontend ]]; then
+    ln -sfn "$previous_frontend" "$current_frontend.next"
+    mv -Tf "$current_frontend.next" "$current_frontend"
+  fi
+  if [[ -n $previous_release && -d $previous_release ]]; then
+    ln -sfn "$previous_release" "$current_release.next"
+    mv -Tf "$current_release.next" "$current_release"
+  fi
+  if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet nginx; then
+    nginx -t && systemctl reload nginx || true
+  fi
+  exit "$exit_code"
+}
+trap restore_on_error ERR
+
+mv "$next_env" "$release_env"
+export NEW_API_IMAGE="$target_image"
+compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
+"${compose[@]}" up -d --no-deps new-api
+
+api_container=$("${compose[@]}" ps -q new-api)
+for _ in $(seq 1 60); do
+  api_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$api_container")
+  [[ $api_health == "healthy" || $api_health == "running" ]] && break
+  if [[ $api_health == "unhealthy" || $api_health == "exited" || $api_health == "dead" ]]; then
+    fail "API container entered state: $api_health"
+  fi
+  sleep 2
+done
+[[ $api_health == "healthy" || $api_health == "running" ]] || fail "API container did not become ready"
+
+"${compose[@]}" up -d --no-deps new-api-worker
+worker_container=$("${compose[@]}" ps -q new-api-worker)
+for _ in $(seq 1 30); do
+  worker_state=$(docker inspect --format '{{.State.Status}}' "$worker_container")
+  [[ $worker_state == "running" ]] && break
+  if [[ $worker_state == "exited" || $worker_state == "dead" ]]; then
+    fail "worker container entered state: $worker_state"
+  fi
+  sleep 2
+done
+[[ $worker_state == "running" ]] || fail "worker container did not become ready"
+
+ln -sfn "$target_frontend" "$current_frontend.next"
+mv -Tf "$current_frontend.next" "$current_frontend"
+ln -sfn "$target_record" "$current_release.next"
+mv -Tf "$current_release.next" "$current_release"
+
+if command -v nginx >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet nginx; then
+  nginx -t
+  systemctl reload nginx
+fi
+
+health_ok="false"
+for _ in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 10 "$health_url" >/dev/null; then
+    health_ok="true"
+    break
+  fi
+  sleep 2
+done
+[[ $health_ok == "true" ]] || fail "public health check failed: $health_url"
+trap - ERR
+
+rollback_log="$history_root/rollback-$(date -u +'%Y%m%d%H%M%S')-$release_id.log"
+{
+  printf 'target_release=%s\n' "$release_id"
+  printf 'target_image=%s\n' "$target_image"
+  printf 'previous_image=%s\n' "$previous_image"
+  printf 'completed_at=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+} >"$rollback_log"
+
+printf 'rollback to %s completed successfully\n' "$release_id"

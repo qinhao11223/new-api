@@ -34,7 +34,13 @@ import { useUpdateOption } from '../hooks/use-update-option'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { GroupRatioForm } from './group-ratio-form'
 import { ModelRatioForm } from './model-ratio-form'
+import type {
+  PricingWorkbenchImportBatch,
+  PricingWorkbenchImportCandidate,
+} from './pricing-workbench'
+import { PricingWorkbenchPanel } from './pricing-workbench-panel'
 import { ToolPriceSettings } from './tool-price-settings'
+import { UpstreamModelPoolPanel } from './upstream-model-pool-panel'
 import { UpstreamRatioSync } from './upstream-ratio-sync'
 import {
   formatJsonForTextarea,
@@ -139,6 +145,8 @@ const createGroupSchema = (t: Translate) =>
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
 type GroupFormValues = z.infer<ReturnType<typeof createGroupSchema>>
 type RatioTabId =
+  | 'upstream-model-pool'
+  | 'pricing-workbench'
   | 'models'
   | 'unset-models'
   | 'groups'
@@ -149,6 +157,8 @@ type RatioSettingsCardProps = {
   modelDefaults: ModelFormValues
   groupDefaults: GroupFormValues
   toolPricesDefault: string
+  pricingWorkbenchDefault?: string
+  usdExchangeRate?: number
   titleKey?: string
   visibleTabs?: RatioTabId[]
 }
@@ -157,6 +167,8 @@ export function RatioSettingsCard({
   modelDefaults,
   groupDefaults,
   toolPricesDefault,
+  pricingWorkbenchDefault = '',
+  usdExchangeRate = 1,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
@@ -164,6 +176,10 @@ export function RatioSettingsCard({
   const updateOption = useUpdateOption()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const defaultTab = visibleTabs[0] ?? 'models'
+  const [activeTab, setActiveTab] = useState<RatioTabId>(defaultTab)
+  const [pricingImportBatch, setPricingImportBatch] =
+    useState<PricingWorkbenchImportBatch>()
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
@@ -402,7 +418,20 @@ export function RatioSettingsCard({
     resetMutate()
   }, [resetMutate])
 
+  const handleAddToPricingDraft = useCallback(
+    (candidates: PricingWorkbenchImportCandidate[]) => {
+      setPricingImportBatch({
+        id: `${Date.now()}-${Math.random()}`,
+        candidates,
+      })
+      setActiveTab('pricing-workbench')
+    },
+    []
+  )
+
   const tabLabels: Record<RatioTabId, string> = {
+    'upstream-model-pool': 'Upstream model pool',
+    'pricing-workbench': 'Pricing workbench',
     models: 'Model prices',
     'unset-models': 'Unset price models',
     groups: 'Group ratios',
@@ -416,10 +445,28 @@ export function RatioSettingsCard({
       3: 'grid-cols-3',
       4: 'grid-cols-4',
       5: 'grid-cols-5',
+      6: 'grid-cols-6',
     }[visibleTabs.length] ?? 'grid-cols-4'
-  const defaultTab = visibleTabs[0] ?? 'models'
-
   const renderTabContent = (tab: RatioTabId) => {
+    if (tab === 'upstream-model-pool') {
+      return (
+        <UpstreamModelPoolPanel onAddToPricingDraft={handleAddToPricingDraft} />
+      )
+    }
+    if (tab === 'pricing-workbench') {
+      return (
+        <PricingWorkbenchPanel
+          defaultValue={pricingWorkbenchDefault}
+          usdExchangeRate={usdExchangeRate}
+          modelPrice={modelDefaults.ModelPrice}
+          modelRatio={modelDefaults.ModelRatio}
+          completionRatio={modelDefaults.CompletionRatio}
+          billingMode={modelDefaults.BillingMode}
+          billingExpr={modelDefaults.BillingExpr}
+          importBatch={pricingImportBatch}
+        />
+      )
+    }
     if (tab === 'models' || tab === 'unset-models') {
       return (
         <ModelRatioForm
@@ -480,14 +527,25 @@ export function RatioSettingsCard({
           {renderTabContent(defaultTab)}
         </SettingsSection>
       ) : (
-        <Tabs defaultValue={defaultTab} className='h-full min-h-0 gap-6'>
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as RatioTabId)}
+          className='h-full min-h-0 gap-6'
+        >
           <SettingsPageTitleStatusPortal>
             {renderTabSwitcher()}
           </SettingsPageTitleStatusPortal>
 
           <SettingsSection title={t(titleKey)} className='min-h-0 flex-1'>
             {visibleTabs.map((tab) => (
-              <TabsContent key={tab} value={tab} className='min-h-0'>
+              <TabsContent
+                key={tab}
+                value={tab}
+                keepMounted={
+                  tab === 'upstream-model-pool' || tab === 'pricing-workbench'
+                }
+                className='min-h-0'
+              >
                 {renderTabContent(tab)}
               </TabsContent>
             ))}

@@ -190,6 +190,26 @@ func TestPricingNativeChannelEndpointTypesUnchanged(t *testing.T) {
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeAnthropic, constant.EndpointTypeOpenAI}, byModel["claude-3-5-sonnet"])
 }
 
+func TestPricingBlankMetadataEndpointKeepsBuiltInPath(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 204, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 204, "gpt-image-1")
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "gpt-image-1",
+		Endpoints: `{"image-generation":{}}`,
+		Status:    1,
+		NameRule:  NameRuleExact,
+	}).Error)
+
+	GetPricing()
+
+	assert.Equal(t, common.EndpointInfo{
+		Path:   "/v1/images/generations",
+		Method: "POST",
+	}, GetSupportedEndpointMap()[string(constant.EndpointTypeImageGeneration)])
+}
+
 func TestInitChannelCacheInvalidatesPricingCache(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 

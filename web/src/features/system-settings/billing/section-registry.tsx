@@ -111,7 +111,16 @@ const BILLING_SECTIONS = [
         modelDefaults={getModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
-        visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
+        pricingWorkbenchDefault={settings['billing_setting.pricing_workbench']}
+        usdExchangeRate={settings.USDExchangeRate}
+        visibleTabs={[
+          'upstream-model-pool',
+          'pricing-workbench',
+          'models',
+          'unset-models',
+          'tool-prices',
+          'upstream-sync',
+        ]}
       />
     ),
   },

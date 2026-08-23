@@ -354,18 +354,26 @@ function buildEmbeddingSample(lang: Lang, ctx: SampleContext): string {
 function buildImageSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const prompt = 'A serene koi pond at sunset, ukiyo-e style.'
+  const isGeminiResolutionModel =
+    ctx.modelName === 'gemini-3-pro-image' ||
+    ctx.modelName === 'gemini-3.1-flash-image'
+  const body = isGeminiResolutionModel
+    ? {
+        model: ctx.modelName,
+        prompt,
+        size: '1:1',
+        quality: '1K',
+        n: 1,
+      }
+    : { model: ctx.modelName, prompt, size: '1024x1024', n: 1 }
 
   if (lang === 'curl') {
-    const body = JSON.stringify(
-      { model: ctx.modelName, prompt, size: '1024x1024', n: 1 },
-      null,
-      2
-    )
+    const bodyJson = JSON.stringify(body, null, 2)
     return [
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${bodyJson.replace(/\n/g, '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -377,7 +385,8 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
       'response = client.images.generate(',
       `    model="${ctx.modelName}",`,
       `    prompt="${prompt}",`,
-      `    size="1024x1024",`,
+      `    size="${isGeminiResolutionModel ? '1:1' : '1024x1024'}",`,
+      ...(isGeminiResolutionModel ? [`    quality="1K",`] : []),
       `    n=1,`,
       ')',
       '',
@@ -385,6 +394,22 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
     ].join('\n')
   }
   if (lang === 'typescript') {
+    if (isGeminiResolutionModel) {
+      const bodyJson = JSON.stringify(body, null, 2)
+      return [
+        `const response = await fetch('${url}', {`,
+        `  method: 'POST',`,
+        `  headers: {`,
+        `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+        `    'Content-Type': 'application/json',`,
+        `  },`,
+        `  body: JSON.stringify(${bodyJson}),`,
+        `})`,
+        '',
+        `const data = await response.json()`,
+        `console.log(data.data[0].url)`,
+      ].join('\n')
+    }
     return [
       `import OpenAI from 'openai'`,
       '',
@@ -410,12 +435,7 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
     `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
     `    'Content-Type': 'application/json',`,
     `  },`,
-    `  body: JSON.stringify({`,
-    `    model: '${ctx.modelName}',`,
-    `    prompt: '${prompt}',`,
-    `    size: '1024x1024',`,
-    `    n: 1,`,
-    `  }),`,
+    `  body: JSON.stringify(${JSON.stringify(body, null, 2)}),`,
     `})`,
     '',
     `const data = await response.json()`,

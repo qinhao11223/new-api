@@ -337,6 +337,9 @@ func updatePricing() {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
+					if strings.TrimSpace(val) == "" {
+						continue
+					}
 					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
 				case map[string]interface{}:
 					ep := common.EndpointInfo{Method: "POST"}
@@ -345,6 +348,9 @@ func updatePricing() {
 					}
 					if m, ok := val["method"].(string); ok {
 						ep.Method = strings.ToUpper(m)
+					}
+					if strings.TrimSpace(ep.Path) == "" {
+						continue
 					}
 					supportedEndpointMap[k] = ep
 				default:

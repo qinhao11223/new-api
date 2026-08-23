@@ -13,6 +13,8 @@ var (
 		"dall-e-3",
 		"dall-e-2",
 		"gpt-image-1",
+		"gemini-3-pro-image",
+		"gemini-3.1-flash-image",
 		"prefix:imagen-",
 		"flux-",
 		"flux.1-",

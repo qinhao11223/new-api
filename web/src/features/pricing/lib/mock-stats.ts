@@ -793,7 +793,33 @@ export function buildSupportedParameters(
   const cat = apiCategoryOf(model)
   if (cat === 'reasoning') return REASONING_PARAMS
   if (cat === 'embedding') return EMBEDDING_PARAMS
-  if (cat === 'image') return IMAGE_PARAMS
+  if (cat === 'image') {
+    if (
+      model.model_name === 'gemini-3-pro-image' ||
+      model.model_name === 'gemini-3.1-flash-image'
+    ) {
+      return IMAGE_PARAMS.map((parameter) => {
+        if (parameter.name === 'size') {
+          return {
+            ...parameter,
+            enumValues: ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4'],
+            defaultValue: '1:1',
+            descriptionKey: 'Output aspect ratio',
+          }
+        }
+        if (parameter.name === 'quality') {
+          return {
+            ...parameter,
+            enumValues: ['1K', '2K', '4K'],
+            defaultValue: '1K',
+            descriptionKey: 'Output image size',
+          }
+        }
+        return parameter
+      })
+    }
+    return IMAGE_PARAMS
+  }
   if (cat === 'video') return VIDEO_PARAMS
   return COMMON_CHAT_PARAMS
 }

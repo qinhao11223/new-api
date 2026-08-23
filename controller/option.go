@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -152,6 +153,10 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
 			return
 		}
+	}
+	if option.Key == billing_setting.PricingWorkbenchOptionKey {
+		common.ApiErrorMsg(c, "请使用定价工作台专用接口保存配置")
+		return
 	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
