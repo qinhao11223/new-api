@@ -103,7 +103,7 @@ printf 'NEW_API_IMAGE=%s\n' "$target_image" >"$next_env"
 export NEW_API_IMAGE="$target_image"
 compose=(docker compose --env-file "$compose_environment_file" -f "$compose_file" -f "$override_file")
 "${compose[@]}" config --quiet
-docker pull "$target_image" || docker image inspect "$target_image" >/dev/null
+docker image inspect "$target_image" >/dev/null 2>&1 || docker pull "$target_image"
 
 restore_on_error() {
   exit_code=$?
