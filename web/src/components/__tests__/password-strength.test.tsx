@@ -17,10 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
+import { afterAll, describe, test } from 'vitest'
 
 import {
   evaluatePasswordStrength,
@@ -194,7 +194,7 @@ async function renderPasswordStrength(
 }
 
 describe('password strength feedback', () => {
-  after(() => domWindow.close())
+  afterAll(() => domWindow.close())
 
   test('exposes requirement feedback through its caller-provided id', async () => {
     const rendered = await renderPasswordStrength({
