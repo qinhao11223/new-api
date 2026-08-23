@@ -182,8 +182,20 @@ jobs:
         id: image
         env:
           IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        run: echo "image_ref=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+          IMAGE_INDEX_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          PLATFORM_DIGEST=$(
+            docker buildx imagetools inspect \
+              "$IMAGE_REPOSITORY@$IMAGE_INDEX_DIGEST" \
+              --format '{{json .Manifest}}' |
+              jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' |
+              head -n 1
+          )
+          if [[ ! $PLATFORM_DIGEST =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Unable to resolve the linux/amd64 image digest.'
+            exit 1
+          fi
+          echo "image_ref=${IMAGE_REPOSITORY}@${PLATFORM_DIGEST}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy with health check and rollback
