@@ -23,7 +23,7 @@ jobs:
   rollback:
     name: Restore recorded release
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: production
     env:
       PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
@@ -81,6 +81,7 @@ jobs:
           printf -v remote_command '%q ' "${remote_args[@]}"
           ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$PRODUCTION_USER@$PRODUCTION_HOST" "$remote_command"
 
       - name: Write rollback summary

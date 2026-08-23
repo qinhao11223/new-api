@@ -189,7 +189,7 @@ jobs:
     name: Deploy with health check and rollback
     needs: [prepare, validate, build_image]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: production
     env:
       PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
@@ -231,6 +231,7 @@ jobs:
         run: |
           REMOTE_HOME=$(ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$PRODUCTION_USER@$PRODUCTION_HOST" 'printf %s "$HOME"')
           [[ $REMOTE_HOME =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo '::error::Unexpected remote home path'; exit 1; }
           REMOTE_STAGE="$REMOTE_HOME/.new-api-releases/$RELEASE_ID"
@@ -238,10 +239,12 @@ jobs:
           printf -v mkdir_command 'mkdir -p %q' "$REMOTE_STAGE"
           ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$PRODUCTION_USER@$PRODUCTION_HOST" "$mkdir_command"
 
           scp -i "$HOME/.ssh/production" -P "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             release-bundle/frontend.tar.gz release-bundle/frontend.tar.gz.sha256 \
             "$PRODUCTION_USER@$PRODUCTION_HOST:$REMOTE_STAGE/"
 
@@ -267,6 +270,7 @@ jobs:
           printf -v remote_command '%q ' "${remote_args[@]}"
           ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$PRODUCTION_USER@$PRODUCTION_HOST" "$remote_command"
 
       - name: Write release summary
