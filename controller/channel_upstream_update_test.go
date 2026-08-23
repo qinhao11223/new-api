@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -190,16 +191,24 @@ func TestFetchOrdinaryOpenAIModelsKeepsExistingEmptyDataBehavior(t *testing.T) {
 func TestFetchGRSAIModelsUsesPublicCatalogWithoutModelListRoute(t *testing.T) {
 	t.Setenv("ASYNC_GRSAI_ALLOWED_BASE_URLS", "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "text/html", r.Header.Get("Accept"))
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, err := w.Write([]byte(`<html><body>
-			<h2>模型大全</h2>
-			<h3 title="点击复制模型名称"> nano-banana-2 </h3>
-			<h3 title="点击复制模型名称"><span>gpt-5.6-sol</span></h3>
-			<h3 title="点击复制模型名称">nano-banana-2</h3>
-			<h3>不是模型名称</h3>
-		</body></html>`))
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Accept"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Empty(t, r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{}`, string(body))
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, err = w.Write([]byte(`{
+			"code": 0,
+			"data": {
+				"list": [
+					{"name": " nano-banana-2 "},
+					{"name": "gpt-5.6-sol"},
+					{"name": "nano-banana-2"}
+				]
+			}
+		}`))
 		assert.NoError(t, err)
 	}))
 	t.Cleanup(server.Close)
@@ -217,11 +226,26 @@ func TestFetchGRSAIModelsUsesPublicCatalogWithoutModelListRoute(t *testing.T) {
 	require.Equal(t, []string{"nano-banana-2", "gpt-5.6-sol"}, models)
 }
 
-func TestParseGRSAIPublicModelCatalogRejectsUnexpectedMarkup(t *testing.T) {
-	models, err := parseGRSAIPublicModelCatalog([]byte(`<html><body><h3>not-a-catalog-entry</h3></body></html>`))
+func TestParseGRSAIPublicModelCatalogRejectsInvalidResponses(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantError string
+	}{
+		{name: "malformed JSON", body: `{"code":`, wantError: "parse GRS AI public model catalog"},
+		{name: "API error", body: `{"code":500,"message":"catalog unavailable"}`, wantError: "code 500: catalog unavailable"},
+		{name: "missing list", body: `{"code":0,"data":{}}`, wantError: "contains no valid model IDs"},
+		{name: "invalid model ID", body: `{"code":0,"data":{"list":[{"name":"bad model"}]}}`, wantError: "contains an invalid model ID"},
+	}
 
-	require.ErrorContains(t, err, "contains no valid model IDs")
-	require.Nil(t, models)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			models, err := parseGRSAIPublicModelCatalog([]byte(test.body))
+
+			require.ErrorContains(t, err, test.wantError)
+			require.Nil(t, models)
+		})
+	}
 }
 
 func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {
