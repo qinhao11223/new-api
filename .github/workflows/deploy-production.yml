@@ -201,7 +201,10 @@ jobs:
     name: Deploy with health check and rollback
     needs: [prepare, validate, build_image]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Cross-border image pulls can be slow even when the application is healthy.
+    # Keep the timeout above the server-side pull retry window so a release is not
+    # cancelled while Docker is still making progress.
+    timeout-minutes: 120
     environment: production
     env:
       PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
@@ -254,11 +257,21 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "$PRODUCTION_USER@$PRODUCTION_HOST" "$mkdir_command"
 
-          scp -i "$HOME/.ssh/production" -P "$PRODUCTION_PORT" \
+          printf -v verify_command \
+            'cd %q && test -f frontend.tar.gz && test -f frontend.tar.gz.sha256 && sha256sum -c frontend.tar.gz.sha256 >/dev/null 2>&1' \
+            "$REMOTE_STAGE"
+          if ssh -i "$HOME/.ssh/production" -p "$PRODUCTION_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
-            release-bundle/frontend.tar.gz release-bundle/frontend.tar.gz.sha256 \
-            "$PRODUCTION_USER@$PRODUCTION_HOST:$REMOTE_STAGE/"
+            "$PRODUCTION_USER@$PRODUCTION_HOST" "$verify_command"; then
+            echo 'Verified release bundle already exists on the server; skipping upload.'
+          else
+            scp -i "$HOME/.ssh/production" -P "$PRODUCTION_PORT" \
+              -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+              release-bundle/frontend.tar.gz release-bundle/frontend.tar.gz.sha256 \
+              "$PRODUCTION_USER@$PRODUCTION_HOST:$REMOTE_STAGE/"
+          fi
 
           echo "REMOTE_STAGE=$REMOTE_STAGE" >> "$GITHUB_ENV"
 
