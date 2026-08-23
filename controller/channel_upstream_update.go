@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
+	"golang.org/x/net/html"
 )
 
 const (
@@ -37,7 +40,12 @@ const (
 	channelUpstreamModelUpdateNotifyMaxChannelDetails     = 8
 	channelUpstreamModelUpdateNotifyMaxModelDetails       = 12
 	channelUpstreamModelUpdateNotifyMaxFailedChannelIDs   = 10
+	grsaiPublicModelCatalogURL                            = "https://grsai.com/zh/dashboard/models"
+	grsaiPublicModelCatalogMaxBytes                       = 1 << 20
+	grsaiPublicModelCatalogTimeout                        = 20 * time.Second
 )
+
+var grsaiPublicModelIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
 
 var channelUpstreamModelUpdateSelectFields = []string{
 	"id",
@@ -333,9 +341,114 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+	return fetchChannelUpstreamModelIDsWithGRSAICatalog(channel, grsaiPublicModelCatalogURL)
+}
+
+func parseGRSAIPublicModelCatalog(body []byte) ([]string, error) {
+	tokenizer := html.NewTokenizer(bytes.NewReader(body))
+	models := make([]string, 0)
+	capturingModel := false
+	modelElementDepth := 0
+	var modelName strings.Builder
+
+	for {
+		switch tokenType := tokenizer.Next(); tokenType {
+		case html.ErrorToken:
+			if err := tokenizer.Err(); err != nil && !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("parse GRS AI public model catalog: %w", err)
+			}
+			models = normalizeModelNames(models)
+			if len(models) == 0 {
+				return nil, errors.New("GRS AI public model catalog contains no valid model IDs")
+			}
+			return models, nil
+		case html.StartTagToken:
+			token := tokenizer.Token()
+			if capturingModel {
+				modelElementDepth++
+				continue
+			}
+			if token.Data != "h3" {
+				continue
+			}
+			for _, attribute := range token.Attr {
+				if attribute.Key == "title" && attribute.Val == "点击复制模型名称" {
+					capturingModel = true
+					modelElementDepth = 1
+					modelName.Reset()
+					break
+				}
+			}
+		case html.TextToken:
+			if capturingModel {
+				modelName.Write(tokenizer.Text())
+			}
+		case html.EndTagToken:
+			if !capturingModel {
+				continue
+			}
+			modelElementDepth--
+			if modelElementDepth > 0 {
+				continue
+			}
+
+			name := strings.TrimSpace(modelName.String())
+			if !grsaiPublicModelIDPattern.MatchString(name) {
+				return nil, errors.New("GRS AI public model catalog contains an invalid model ID")
+			}
+			models = append(models, name)
+			capturingModel = false
+		}
+	}
+}
+
+func fetchGRSAIPublicModelCatalog(channel *model.Channel, catalogURL string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), grsaiPublicModelCatalogTimeout)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, catalogURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("User-Agent", "new-api upstream model discovery")
+
+	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GRS AI public model catalog status code: %d", response.StatusCode)
+	}
+
+	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil || mediaType != "text/html" {
+		return nil, errors.New("GRS AI public model catalog did not return HTML")
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, grsaiPublicModelCatalogMaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > grsaiPublicModelCatalogMaxBytes {
+		return nil, fmt.Errorf("GRS AI public model catalog exceeds %d bytes", grsaiPublicModelCatalogMaxBytes)
+	}
+	return parseGRSAIPublicModelCatalog(body)
+}
+
+func fetchChannelUpstreamModelIDsWithGRSAICatalog(channel *model.Channel, grsaiCatalogURL string) ([]string, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
+	}
+	// GRS AI does not publish an OpenAI-compatible /v1/models endpoint. Its
+	// public catalog is key-independent and is the authoritative discovery source.
+	if common.IsAllowedGRSAIBaseURL(baseURL) {
+		return fetchGRSAIPublicModelCatalog(channel, grsaiCatalogURL)
 	}
 
 	if channel.Type == constant.ChannelTypeOllama {

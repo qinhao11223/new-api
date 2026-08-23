@@ -187,6 +187,43 @@ func TestFetchOrdinaryOpenAIModelsKeepsExistingEmptyDataBehavior(t *testing.T) {
 	require.Empty(t, models)
 }
 
+func TestFetchGRSAIModelsUsesPublicCatalogWithoutModelListRoute(t *testing.T) {
+	t.Setenv("ASYNC_GRSAI_ALLOWED_BASE_URLS", "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "text/html", r.Header.Get("Accept"))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, err := w.Write([]byte(`<html><body>
+			<h2>模型大全</h2>
+			<h3 title="点击复制模型名称"> nano-banana-2 </h3>
+			<h3 title="点击复制模型名称"><span>gpt-5.6-sol</span></h3>
+			<h3 title="点击复制模型名称">nano-banana-2</h3>
+			<h3>不是模型名称</h3>
+		</body></html>`))
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	baseURL := "https://grsaiapi.com/v1"
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeAdvancedCustom,
+		Key:     "unused-public-catalog-key",
+		BaseURL: &baseURL,
+	}
+
+	models, err := fetchChannelUpstreamModelIDsWithGRSAICatalog(channel, server.URL)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"nano-banana-2", "gpt-5.6-sol"}, models)
+}
+
+func TestParseGRSAIPublicModelCatalogRejectsUnexpectedMarkup(t *testing.T) {
+	models, err := parseGRSAIPublicModelCatalog([]byte(`<html><body><h3>not-a-catalog-entry</h3></body></html>`))
+
+	require.ErrorContains(t, err, "contains no valid model IDs")
+	require.Nil(t, models)
+}
+
 func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {
 	receivedAuthorization := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
